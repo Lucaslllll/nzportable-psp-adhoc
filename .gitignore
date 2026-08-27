@@ -1,0 +1,15 @@
+# Diretorios de trabalho dos scripts
+.cache/
+.work/
+dist/
+toolchain/
+nzportable/
+
+# Dados do jogo (do nzp-team, nunca versionados aqui)
+*.zip
+EBOOT.PBP
+progs.dat
+
+# Lixo de editor / SO
+*~
+.DS_Store

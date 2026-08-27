@@ -1,0 +1,195 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: EBOOT.PBP (engine)
+    runs-on: ubuntu-latest
+    container:
+      image: pspdev/pspdev
+    steps:
+      - name: Prepare container
+        run: apk add bash git make zip gmp mpc1 mpfr4 curl
+
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Clone the engine fork at the pinned commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          . ./sources.env
+          git config --global --add safe.directory '*'
+          mkdir engine
+          git -C engine init -q
+          git -C engine remote add origin "$ENGINE_REPO"
+          git -C engine fetch -q --depth 1 origin "$ENGINE_COMMIT"
+          git -C engine checkout -q --detach FETCH_HEAD
+          echo "engine at $(git -C engine rev-parse HEAD)"
+
+      - name: Install libpspmath
+        run: psp-pacman -Sy libpspmath --noconfirm
+
+      - name: Build
+        shell: bash
+        working-directory: engine
+        run: make -f Makefile.psp WERROR=1 -j"$(nproc)"
+
+      - name: Upload EBOOT.PBP
+        uses: actions/upload-artifact@v4
+        with:
+          name: eboot
+          path: engine/build/psp/bin/EBOOT.PBP
+          if-no-files-found: error
+
+  quakec:
+    name: progs.dat (QuakeC)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      # pandas 1.5.3 (pin obrigatorio, veja requirements-qc.txt) so tem wheel
+      # pronta ate o Python 3.11.
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Clone the QuakeC fork at the pinned commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          . ./sources.env
+          mkdir quakec
+          git -C quakec init -q
+          git -C quakec remote add origin "$QUAKEC_REPO"
+          git -C quakec fetch -q --depth 1 origin "$QUAKEC_COMMIT"
+          git -C quakec checkout -q --detach FETCH_HEAD
+          echo "quakec at $(git -C quakec rev-parse HEAD)"
+
+      - name: Install QuakeC dependencies
+        run: python -m pip install -r requirements-qc.txt
+
+      - name: Build
+        shell: bash
+        working-directory: quakec
+        run: |
+          set -euo pipefail
+          chmod +x tools/qc-compiler-gnu.sh bin/fteqcc-cli-lin
+          tools/qc-compiler-gnu.sh
+          test -f build/standard/progs.dat
+
+      - name: Upload progs.dat
+        uses: actions/upload-artifact@v4
+        with:
+          name: progs
+          path: quakec/build/standard/progs.dat
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [engine, quakec]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect artifacts and checksums
+        id: collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          . ./sources.env
+          mkdir -p dist
+          cp artifacts/eboot/EBOOT.PBP dist/EBOOT.PBP
+          cp artifacts/progs/progs.dat dist/progs.dat
+          ( cd dist && sha256sum EBOOT.PBP progs.dat | tee SHA256SUMS.txt )
+          {
+            echo "engine_short=${ENGINE_COMMIT:0:9}"
+            echo "quakec_short=${QUAKEC_COMMIT:0:9}"
+            echo "engine_commit=$ENGINE_COMMIT"
+            echo "quakec_commit=$QUAKEC_COMMIT"
+            echo "engine_branch=$ENGINE_BRANCH"
+            echo "quakec_branch=$QUAKEC_BRANCH"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          E_SHORT: ${{ steps.collect.outputs.engine_short }}
+          Q_SHORT: ${{ steps.collect.outputs.quakec_short }}
+          E_COMMIT: ${{ steps.collect.outputs.engine_commit }}
+          Q_COMMIT: ${{ steps.collect.outputs.quakec_commit }}
+          E_BRANCH: ${{ steps.collect.outputs.engine_branch }}
+          Q_BRANCH: ${{ steps.collect.outputs.quakec_branch }}
+        run: |
+          set -euo pipefail
+          cat > NOTES.md <<EOF
+          Build da comunidade do **NZ:P 2.x para PSP** com o multiplayer **AdHoc** reativado.
+          Fork **nao-oficial**. O jogo e os dados sao do [nzp-team](https://github.com/nzp-team/nzportable).
+
+          ## Como montar a pasta de jogo (um comando)
+
+          Esta release traz **apenas** o \`EBOOT.PBP\` e o \`progs.dat\`. Os dados do jogo
+          (~100 MB, do nzp-team) nao sao redistribuidos aqui: o \`package.sh\` baixa a
+          nightly oficial na sua maquina e troca so esses dois arquivos.
+
+          \`\`\`bash
+          git clone https://github.com/${GITHUB_REPOSITORY} && cd nzportable-psp-adhoc && ./package.sh
+          \`\`\`
+
+          Precisa apenas de \`bash\`, \`curl\` (ou \`wget\`) e \`unzip\` — sem compilador, sem Python.
+          No fim, copie a pasta \`nzportable/\` para \`PSP/GAME/\` (PSP real) ou
+          \`/sdcard/PSP/GAME/\` (PPSSPP Android).
+
+          Para compilar tudo do zero: \`./build.sh && ./package.sh --local\`.
+
+          > Antes de jogar em rede, leia a secao **Configuracao do PPSSPP** do README:
+          > as opcoes que valem para homebrew sao as do **config global**, com a mesma
+          > **Port offset** e um **MAC address diferente** em cada aparelho.
+
+          ## Fontes fixadas nesta build
+
+          | | branch | commit |
+          |---|---|---|
+          | engine | \`${E_BRANCH}\` | [\`${E_SHORT}\`](https://github.com/Lucaslllll/vril-engine/commit/${E_COMMIT}) |
+          | QuakeC | \`${Q_BRANCH}\` | [\`${Q_SHORT}\`](https://github.com/Lucaslllll/quakec/commit/${Q_COMMIT}) |
+
+          ## Checksums (SHA-256)
+
+          \`\`\`
+          $(cat dist/SHA256SUMS.txt)
+          \`\`\`
+
+          O \`package.sh\` confere esses checksums automaticamente e falha se nao baterem.
+          EOF
+          sed -i 's/^          //' NOTES.md
+          cat NOTES.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "NZ:P PSP AdHoc ${{ github.ref_name }}" \
+            --notes-file NOTES.md \
+            dist/EBOOT.PBP dist/progs.dat dist/SHA256SUMS.txt

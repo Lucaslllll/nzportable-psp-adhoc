@@ -1,0 +1,15 @@
+# Dependencias do compilador de QuakeC (bin/qc_hash_generator.py do repo quakec).
+#
+# ATENCAO ao pin do pandas: o requirements oficial do nzp-team pede
+# pandas==2.1.4, mas a partir do pandas 2.x o acesso a `DataFrame.values`
+# mudou de semantica (passou a devolver uma copia consolidada em vez de
+# iterar as linhas como o script espera) e qc_hash_generator.py gera uma
+# hash_table.qc errada / quebra na geracao. 1.5.3 e a ultima serie que
+# funciona com esse script.
+pandas==1.5.3
+numpy==1.26.4
+fastcrc==0.3.6
+colorama==0.4.6
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+six==1.17.0
