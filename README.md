@@ -45,11 +45,6 @@ O `package.sh` faz o seguinte:
 3. troca **apenas** o `EBOOT.PBP` e o `nzp/progs.dat` pelos da build com AdHoc;
 4. deixa a pasta `nzportable/` pronta.
 
-> **Enquanto não houver uma release `v*` publicada aqui**, o passo 1 não tem de
-> onde baixar e o script para avisando isso. Nesse caso, o caminho é
-> `./build.sh && ./package.sh --local` — veja
-> [Compilando do zero](#compilando-do-zero).
-
 No fim, copie a pasta inteira para:
 
 | onde você joga | destino |
@@ -266,40 +261,50 @@ python3.11 -m venv toolchain/qcvenv
 
 Testado em máquina limpa (Debian 12, glibc 2.36), simulando alguém que só clonou
 o repositório: `env -i`, `HOME` novo, `PATH` mínimo, sem `PSPDEV`, sem toolchain,
-sem venv e sem cache nenhum.
+sem venv, sem token e sem cache nenhum.
 
-**Compilando do zero** — `./build.sh && ./package.sh --local`, exit 0:
+**O caminho recomendado**, exatamente o comando do topo deste README, exit 0:
+achou a release `v1.0.0` pela API, baixou os três assets, **conferiu os checksums
+contra o `SHA256SUMS.txt` da própria release**, baixou a nightly do nzp-team e
+montou `nzportable/` (132 MB). Os outros **1169 arquivos são exatamente os do zip
+do nzp-team** — nenhum a mais, nenhum a menos, nenhum alterado; só o `EBOOT.PBP`
+e o `nzp/progs.dat` foram trocados.
 
-- baixou o toolchain, detectou a glibc antiga e caiu para o `pspdev v20250701`;
-- clonou os dois forks nos commits fixados (conferido com `git rev-parse HEAD`);
-- gerou `EBOOT.PBP` (1,5 MB) e `progs.dat` (764 KB) + `SHA256SUMS.txt`;
-- montou `nzportable/` (132 MB) com a nightly `2.0.0-indev+20260826075151`. O
-  `EBOOT.PBP` e o `nzp/progs.dat` ficaram byte-a-byte iguais aos de `dist/`, e os
-  outros **1169 arquivos são exatamente os do zip do nzp-team** — nenhum a mais,
-  nenhum a menos, nenhum alterado.
+**Compilando do zero** — `./build.sh && ./package.sh --local`, exit 0: baixou o
+toolchain, detectou a glibc antiga e caiu para o `pspdev v20250701`, clonou os
+dois forks nos commits fixados (conferido com `git rev-parse HEAD`) e gerou
+`EBOOT.PBP` (1,5 MB) e `progs.dat` (764 KB) com os checksums. O `progs.dat`
+compilado localmente saiu byte-a-byte igual ao publicado na release.
 
-**Baixando da release** — o mesmo `./package.sh`, sem `--local`, com cache vazio:
-achou a release mais recente pela API, baixou os três assets, **conferiu os
-checksums contra o `SHA256SUMS.txt` da própria release** e montou a pasta. O
-`progs.dat` que veio da release era byte-a-byte igual ao que a máquina limpa
-havia compilado localmente.
+**CI** — todo push e PR compila; a tag `v*` publica. Exercitado inteiro, o job de
+release incluído.
 
-**CI** — o workflow foi exercitado inteiro, inclusive o job de release numa tag
-`v*`: compila o engine na imagem `pspdev/pspdev`, o QuakeC num runner com Python
-3.11, publica `EBOOT.PBP` + `progs.dat` + `SHA256SUMS.txt` e escreve as notas com
-o comando pronto.
+### O jogo montado roda
 
-**O jogo montado roda.** A pasta gerada (binários do CI + assets do nzp-team) foi
-aberta no PPSSPP 1.20.2 e chegou até o menu de coop:
+A pasta gerada pelo caminho recomendado — binários da release `v1.0.0` mais os
+assets do nzp-team — foi aberta no PPSSPP 1.20.2 e jogada até dentro do mapa:
 
-| | |
+| tela | o que apareceu |
 |---|---|
 | MAIN MENU | versão `2.0.0-indev+20260826075151`, **COOPERATIVE ativo** (não mais cinza) |
 | COOPERATIVE | `HOST GAME` / `JOIN GAME` — *"Create an AdHoc Game for nearby PSPs."* |
-| SELECT MAP | lista completa de mapas, e o PPSSPP anunciou **"Multiplayer do Ad Hoc: Modo P2P"** |
+| SELECT MAP | lista completa de mapas; PPSSPP anunciou **"Multiplayer do Ad Hoc: Modo P2P"** |
+| PRE-GAME | lobby de host com contagem *"Game Starting In.."* |
+| em jogo | Nacht der Untoten carregado, HUD com 500 pontos e a Colt na mão |
 
-Esse último aviso é a prova de que o AdHoc inicializou de verdade — o PPSSPP só
-imprime o modo de dados depois de o jogo chamar `sceNetAdhocInit()`.
+E o log do PPSSPP confirma que o AdHoc subiu de verdade, com o comportamento
+esperado desta build:
+
+```
+sceNetAdhocctlConnect(nzp2)
+AdhocServer: ... joined ... group nzp2
+sceNetAdhocPdpCreate(34:f2:25:2e:7c:c9, 26001, 8192, 0)
+sceNetAdhocPdpCreate(34:f2:25:2e:7c:c9, 26000, 8192, 0)
+```
+
+O grupo é `nzp2` (é o que isola esta build da v1) e os sockets pedem **porta
+explícita** — 26000 e 26001 — em vez de porta 0, que é a correção que faz o modo
+relay do PPSSPP funcionar.
 
 ### Reprodutibilidade
 
@@ -383,10 +388,6 @@ Re-running is safe and does nothing if nothing changed. It will **not** silently
 re-download the rolling nightly — use `./package.sh --refresh-assets` when you
 actually want newer game data.
 
-> **Until a `v*` release is published here**, step 1 has nothing to download from
-> and the script stops and says so. Use `./build.sh && ./package.sh --local`
-> instead — see [Building from source](#building-from-source).
-
 **Both players need the same `EBOOT.PBP` and `progs.dat`.**
 
 ## PPSSPP setup
@@ -442,6 +443,26 @@ Two traps `build.sh` handles for you:
   requirements pin `2.1.4`, and pandas 2.x changed `DataFrame.values` semantics,
   which breaks hash table generation. Pins live in
   [`requirements-qc.txt`](requirements-qc.txt) (wheels only up to Python 3.11).
+
+## Test status
+
+Verified on a clean machine (Debian 12, glibc 2.36) with `env -i`, a fresh
+`HOME`, a minimal `PATH`, no `PSPDEV`, no toolchain, no token and no cache:
+
+- **the recommended path** — the exact one-liner above — resolved release
+  `v1.0.0`, verified the assets against the release's own `SHA256SUMS.txt`,
+  pulled the nzp-team nightly and assembled `nzportable/`. All 1169 other files
+  match the nzp-team zip exactly; only `EBOOT.PBP` and `nzp/progs.dat` differ.
+- **building from source** — `./build.sh && ./package.sh --local` fell back to
+  `pspdev v20250701` for the old glibc, built both forks at the pinned commits,
+  and produced a `progs.dat` byte-identical to the released one.
+- **the assembled game runs** — booted in PPSSPP 1.20.2 through
+  `COOPERATIVE → HOST GAME → SELECT MAP` into Nacht der Untoten, with
+  `sceNetAdhocctlConnect(nzp2)` and explicit AdHoc ports 26000/26001 in the log.
+
+Note on reproducibility: the engine bakes `__DATE__`/`__TIME__` into its version
+banner and fteqcc stamps the compile date into `progs.dat`, so two builds of the
+same commit on different days differ — by exactly one byte, the date digit.
 
 ## Distribution and licence
 
