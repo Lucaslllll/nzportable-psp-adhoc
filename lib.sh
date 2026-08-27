@@ -104,7 +104,8 @@ expect_sha() {
 # gh_latest_tag <owner/repo> -> tag_name da release mais recente
 gh_latest_tag() {
 	local json tags
-	json="$(fetch_stdout "https://api.github.com/repos/$1/releases/latest")" || return 1
+	# stderr silenciado: quem chama trata a falha com uma mensagem melhor
+	json="$(fetch_stdout "https://api.github.com/repos/$1/releases/latest" 2>/dev/null)" || return 1
 	tags="$(printf '%s\n' "$json" \
 		| sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 	# so a primeira linha, sem pipe para head (SIGPIPE + pipefail dao 141)

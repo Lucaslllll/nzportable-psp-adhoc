@@ -45,6 +45,11 @@ O `package.sh` faz o seguinte:
 3. troca **apenas** o `EBOOT.PBP` e o `nzp/progs.dat` pelos da build com AdHoc;
 4. deixa a pasta `nzportable/` pronta.
 
+> **Enquanto não houver uma release `v*` publicada aqui**, o passo 1 não tem de
+> onde baixar e o script para avisando isso. Nesse caso, o caminho é
+> `./build.sh && ./package.sh --local` — veja
+> [Compilando do zero](#compilando-do-zero).
+
 No fim, copie a pasta inteira para:
 
 | onde você joga | destino |
@@ -257,6 +262,32 @@ python3.11 -m venv toolchain/qcvenv
 
 ---
 
+## Estado dos testes
+
+O que foi verificado num diretório limpo, nesta máquina (Debian 12, glibc 2.36):
+
+- ✅ `./build.sh` do zero — baixou o toolchain, detectou a glibc antiga e caiu
+  para o `pspdev v20250701`, clonou os dois forks nos commits fixados e gerou
+  `dist/EBOOT.PBP` (1,5 MB) + `dist/progs.dat` (764 KB) + `dist/SHA256SUMS.txt`.
+- ✅ `./package.sh --local` — montou a pasta `nzportable/` (132 MB) com a nightly
+  `2.0.0-indev+20260826075151`; o `EBOOT.PBP` e o `nzp/progs.dat` são
+  byte-a-byte iguais aos de `dist/`, e os outros 1169 arquivos são exatamente os
+  do zip do nzp-team, nenhum a mais nem a menos. Rodar de novo não faz nada
+  (1,5 s) e não rebaixa a nightly.
+- ✅ CI — o workflow compila o engine na imagem `pspdev/pspdev` e o QuakeC num
+  runner com Python 3.11, e publica os dois artefatos.
+- ⏳ **`./package.sh` sem `--local` (baixando da release) ainda não foi testado
+  de ponta a ponta**, porque isso só é possível depois da primeira release `v*`
+  existir. Sem release publicada, ele para com a mensagem certa apontando para
+  `./build.sh && ./package.sh --local`.
+
+Nota sobre reprodutibilidade: o engine usa `__DATE__`/`__TIME__` no código
+(`Con_Printf` da versão), e o `fteqcc` grava a data de compilação dentro do
+`progs.dat`. Então dois builds do **mesmo commit** não dão o mesmo checksum —
+comparando o `progs.dat` daqui com um build de três dias antes, a diferença era
+de exatamente 1 byte, o dígito da data. É por isso que os checksums vêm da
+release e são conferidos contra ela, não recalculados localmente.
+
 ## Releases e distribuição
 
 As releases contêm **apenas** `EBOOT.PBP`, `progs.dat` e `SHA256SUMS.txt`
@@ -329,6 +360,10 @@ nightly (~100 MB), swaps **only** those two files in, and leaves a ready
 Re-running is safe and does nothing if nothing changed. It will **not** silently
 re-download the rolling nightly — use `./package.sh --refresh-assets` when you
 actually want newer game data.
+
+> **Until a `v*` release is published here**, step 1 has nothing to download from
+> and the script stops and says so. Use `./build.sh && ./package.sh --local`
+> instead — see [Building from source](#building-from-source).
 
 **Both players need the same `EBOOT.PBP` and `progs.dat`.**
 
