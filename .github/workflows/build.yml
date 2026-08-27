@@ -154,7 +154,7 @@ jobs:
           nightly oficial na sua maquina e troca so esses dois arquivos.
 
           \`\`\`bash
-          git clone https://github.com/${GITHUB_REPOSITORY} && cd nzportable-psp-adhoc && ./package.sh
+          git clone https://github.com/${GITHUB_REPOSITORY} && cd ${GITHUB_REPOSITORY##*/} && ./package.sh
           \`\`\`
 
           Precisa apenas de \`bash\`, \`curl\` (ou \`wget\`) e \`unzip\` — sem compilador, sem Python.

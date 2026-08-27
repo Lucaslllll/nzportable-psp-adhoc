@@ -264,29 +264,51 @@ python3.11 -m venv toolchain/qcvenv
 
 ## Estado dos testes
 
-O que foi verificado num diretório limpo, nesta máquina (Debian 12, glibc 2.36):
+Testado em máquina limpa (Debian 12, glibc 2.36), simulando alguém que só clonou
+o repositório: `env -i`, `HOME` novo, `PATH` mínimo, sem `PSPDEV`, sem toolchain,
+sem venv e sem cache nenhum.
 
-- ✅ `./build.sh` do zero — baixou o toolchain, detectou a glibc antiga e caiu
-  para o `pspdev v20250701`, clonou os dois forks nos commits fixados e gerou
-  `dist/EBOOT.PBP` (1,5 MB) + `dist/progs.dat` (764 KB) + `dist/SHA256SUMS.txt`.
-- ✅ `./package.sh --local` — montou a pasta `nzportable/` (132 MB) com a nightly
-  `2.0.0-indev+20260826075151`; o `EBOOT.PBP` e o `nzp/progs.dat` são
-  byte-a-byte iguais aos de `dist/`, e os outros 1169 arquivos são exatamente os
-  do zip do nzp-team, nenhum a mais nem a menos. Rodar de novo não faz nada
-  (1,5 s) e não rebaixa a nightly.
-- ✅ CI — o workflow compila o engine na imagem `pspdev/pspdev` e o QuakeC num
-  runner com Python 3.11, e publica os dois artefatos.
-- ⏳ **`./package.sh` sem `--local` (baixando da release) ainda não foi testado
-  de ponta a ponta**, porque isso só é possível depois da primeira release `v*`
-  existir. Sem release publicada, ele para com a mensagem certa apontando para
-  `./build.sh && ./package.sh --local`.
+**Compilando do zero** — `./build.sh && ./package.sh --local`, exit 0:
 
-Nota sobre reprodutibilidade: o engine usa `__DATE__`/`__TIME__` no código
-(`Con_Printf` da versão), e o `fteqcc` grava a data de compilação dentro do
-`progs.dat`. Então dois builds do **mesmo commit** não dão o mesmo checksum —
-comparando o `progs.dat` daqui com um build de três dias antes, a diferença era
-de exatamente 1 byte, o dígito da data. É por isso que os checksums vêm da
-release e são conferidos contra ela, não recalculados localmente.
+- baixou o toolchain, detectou a glibc antiga e caiu para o `pspdev v20250701`;
+- clonou os dois forks nos commits fixados (conferido com `git rev-parse HEAD`);
+- gerou `EBOOT.PBP` (1,5 MB) e `progs.dat` (764 KB) + `SHA256SUMS.txt`;
+- montou `nzportable/` (132 MB) com a nightly `2.0.0-indev+20260826075151`. O
+  `EBOOT.PBP` e o `nzp/progs.dat` ficaram byte-a-byte iguais aos de `dist/`, e os
+  outros **1169 arquivos são exatamente os do zip do nzp-team** — nenhum a mais,
+  nenhum a menos, nenhum alterado.
+
+**Baixando da release** — o mesmo `./package.sh`, sem `--local`, com cache vazio:
+achou a release mais recente pela API, baixou os três assets, **conferiu os
+checksums contra o `SHA256SUMS.txt` da própria release** e montou a pasta. O
+`progs.dat` que veio da release era byte-a-byte igual ao que a máquina limpa
+havia compilado localmente.
+
+**CI** — o workflow foi exercitado inteiro, inclusive o job de release numa tag
+`v*`: compila o engine na imagem `pspdev/pspdev`, o QuakeC num runner com Python
+3.11, publica `EBOOT.PBP` + `progs.dat` + `SHA256SUMS.txt` e escreve as notas com
+o comando pronto.
+
+**O jogo montado roda.** A pasta gerada (binários do CI + assets do nzp-team) foi
+aberta no PPSSPP 1.20.2 e chegou até o menu de coop:
+
+| | |
+|---|---|
+| MAIN MENU | versão `2.0.0-indev+20260826075151`, **COOPERATIVE ativo** (não mais cinza) |
+| COOPERATIVE | `HOST GAME` / `JOIN GAME` — *"Create an AdHoc Game for nearby PSPs."* |
+| SELECT MAP | lista completa de mapas, e o PPSSPP anunciou **"Multiplayer do Ad Hoc: Modo P2P"** |
+
+Esse último aviso é a prova de que o AdHoc inicializou de verdade — o PPSSPP só
+imprime o modo de dados depois de o jogo chamar `sceNetAdhocInit()`.
+
+### Reprodutibilidade
+
+Dois builds do **mesmo commit** não dão o mesmo checksum: o engine compila
+`__DATE__`/`__TIME__` no banner de versão e o `fteqcc` grava a data dentro do
+`progs.dat`. Comparando dois `progs.dat` do mesmo commit com três dias de
+diferença, a divergência era de **exatamente 1 byte** — o dígito da data. Builds
+do mesmo dia saem idênticos. É por isso que os checksums vêm da release e são
+conferidos contra ela, em vez de recalculados localmente.
 
 ## Releases e distribuição
 
