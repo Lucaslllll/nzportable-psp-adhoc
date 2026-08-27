@@ -101,7 +101,9 @@ setup_toolchain() {
 	# tem glibc mais antiga (Debian 12 = 2.36). Nesse caso, fallback fixo.
 	tag=""
 	if [ "$os" = Linux ] && have ldd; then
-		glibc="$(ldd --version 2>/dev/null | head -n 1 | awk '{print $NF}')"
+		local ldd_out
+		ldd_out="$(ldd --version 2>/dev/null || true)"
+		glibc="$(printf '%s\n' "$ldd_out" | awk 'NR==1{print $NF}')"
 		case "$glibc" in
 			[0-9]*.[0-9]*)
 				if version_lt "$glibc" "$PSPDEV_GLIBC_MIN"; then
@@ -136,7 +138,11 @@ setup_toolchain() {
 	local names asset=""
 	names="$(gh_asset_names "$PSPDEV_REPO" "$tag" || true)"
 	for c in "${cand[@]}"; do
-		if printf '%s\n' "$names" | grep -qxF "$c"; then asset="$c"; break; fi
+		# comparacao em bash puro: grep -q fecharia o pipe e, com pipefail,
+		# a pipeline devolveria 141 mesmo quando o asset existe.
+		case $'\n'"$names"$'\n' in
+			*$'\n'"$c"$'\n'*) asset="$c"; break ;;
+		esac
 	done
 	if [ -z "$asset" ]; then
 		asset="${cand[0]}"

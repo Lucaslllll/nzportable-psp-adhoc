@@ -52,18 +52,24 @@ fetch_stdout() {
 # fetch_file <url> <destino>  (atomico: baixa em .part e move no final)
 fetch_file() {
 	local url="$1" out="$2"
-	local -a auth=()
+	local -a auth=() prog=()
 	pick_downloader
 	mkdir -p "$(dirname "$out")"
 	rm -f "$out.part"
+	# barra de progresso so em terminal; em log/CI ela viraria milhares de linhas
+	if [ -t 2 ]; then
+		if [ "$DOWNLOADER" = curl ]; then prog=(--progress-bar); else prog=(--show-progress); fi
+	else
+		if [ "$DOWNLOADER" = curl ]; then prog=(-sS); fi
+	fi
 	if [ "$DOWNLOADER" = curl ]; then
 		if [ -n "${GITHUB_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GITHUB_TOKEN"); fi
-		curl -fL --retry 3 --retry-delay 2 --progress-bar "${auth[@]}" \
+		curl -fL --retry 3 --retry-delay 2 "${prog[@]}" "${auth[@]}" \
 			-o "$out.part" "$url" \
 			|| die "falha ao baixar $url"
 	else
 		if [ -n "${GITHUB_TOKEN:-}" ]; then auth=(--header "Authorization: Bearer $GITHUB_TOKEN"); fi
-		wget --tries=3 -q --show-progress "${auth[@]}" \
+		wget --tries=3 -q "${prog[@]}" "${auth[@]}" \
 			-O "$out.part" "$url" \
 			|| die "falha ao baixar $url"
 	fi
@@ -97,9 +103,12 @@ expect_sha() {
 # --- GitHub --------------------------------------------------------------
 # gh_latest_tag <owner/repo> -> tag_name da release mais recente
 gh_latest_tag() {
-	fetch_stdout "https://api.github.com/repos/$1/releases/latest" \
-		| sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-		| head -n 1
+	local json tags
+	json="$(fetch_stdout "https://api.github.com/repos/$1/releases/latest")" || return 1
+	tags="$(printf '%s\n' "$json" \
+		| sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+	# so a primeira linha, sem pipe para head (SIGPIPE + pipefail dao 141)
+	printf '%s\n' "${tags%%$'\n'*}"
 }
 
 # gh_asset_names <owner/repo> <tag> -> um nome de asset por linha
@@ -114,9 +123,12 @@ gh_asset_url() {
 }
 
 # --- versoes -------------------------------------------------------------
-# version_lt <a> <b> -> 0 se a < b  (compara so major.minor numericos)
+# version_lt <a> <b> -> 0 se a < b  (compara major e minor numericos)
 version_lt() {
-	local a="$1" b="$2"
-	[ "$a" = "$b" ] && return 1
-	[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n 1)" = "$a" ]
+	local a_maj="${1%%.*}" b_maj="${2%%.*}"
+	local a_min="${1#*.}" b_min="${2#*.}"
+	a_min="${a_min%%.*}"; b_min="${b_min%%.*}"
+	[ "$a_maj" -lt "$b_maj" ] && return 0
+	[ "$a_maj" -gt "$b_maj" ] && return 1
+	[ "$a_min" -lt "$b_min" ]
 }
